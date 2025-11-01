@@ -5,6 +5,56 @@ from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping
 from tensorflow.keras.callbacks import TensorBoard
 import datetime
 
+from google.oauth2.credentials import Credentials
+from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
+from google_auth_oauthlib.flow import InstalledAppFlow
+from google.auth.transport.requests import Request
+
+# Permisos solo para subir archivos
+SCOPES = ['https://www.googleapis.com/auth/drive.file']
+
+
+def get_drive_service():
+    creds = None
+
+    if os.path.exists('token.json'):
+        creds = Credentials.from_authorized_user_file('token.json', SCOPES)
+
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', SCOPES)
+            creds = flow.run_local_server(port=0)
+
+        with open('token.json', 'w') as token:
+            token.write(creds.to_json())
+
+    service = build('drive', 'v3', credentials=creds)
+    return service
+
+
+def upload_to_drive(file_path, folder_id=None):
+    service = get_drive_service()
+    file_metadata = {
+        'name': os.path.basename(file_path)
+    }
+
+    if folder_id:
+        file_metadata['parents'] = [folder_id]
+
+    media = MediaFileUpload(file_path, resumable=True)
+
+    file = service.files().create(
+        body=file_metadata,
+        media_body=media,
+        fields='id'
+    ).execute()
+
+    print(f"✅ Archivo subido a Google Drive. ID: {file.get('id')}")
+
+
 baseDir  = os.path.dirname(os.path.abspath(__file__))
 imagesDir = os.path.join(baseDir, 'DS')
 outputDir = os.path.join(baseDir, 'model')
@@ -209,4 +259,13 @@ history = model.fit(
 
 finalModelPath = os.path.join(outputDir, "MuuMetricsBcsModel.keras")
 model.save(finalModelPath)
-print(f"\nModelo completo guardado en: {finalModelPath}")
+print(f"\n✅ Modelo completo guardado en: {finalModelPath}")
+
+drive_folder_id = "1PEc1_SCQBfT-vt7FMDS-VEswDdY5vFTe" #### CHANGE THIS ID
+
+
+# Subir modelo `.keras`
+upload_to_drive(finalModelPath, drive_folder_id)
+
+# Subir los pesos (checkpoints)
+upload_to_drive(checkpointPath, drive_folder_id)
